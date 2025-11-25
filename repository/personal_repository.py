@@ -1,15 +1,18 @@
 from config.supabaseClient import get_supabase
 from uuid import UUID
 from dto.personal_dto.personal_request_dto import PersonalCreateDTO
+from typing import Union, Any
 
 class PersonalRepository:
 
     table = "personal"
 
     @staticmethod
-    async def create(data: PersonalCreateDTO):
+    async def create(data: Union[PersonalCreateDTO, dict[str, Any]]):
         supabase = get_supabase()
-        result = supabase.table(PersonalRepository.table).insert(data.dict()).execute()
+        # `data` puede ser DTO o dict; usar tal cual si ya es dict
+        payload = data if isinstance(data, dict) else data.model_dump()
+        result = supabase.table(PersonalRepository.table).insert(payload).execute()
         return result.data[0] if result.data else None
 
     @staticmethod
@@ -29,3 +32,27 @@ class PersonalRepository:
         supabase = get_supabase()
         result = supabase.table(PersonalRepository.table).delete().eq("id", str(personal_id)).execute()
         return result.data
+
+    @staticmethod
+    async def find_by_email(email: str):
+        supabase = get_supabase()
+        result = supabase.table(PersonalRepository.table).select("*").eq("email", email).execute()
+        return result.data[0] if result.data else None
+
+    @staticmethod
+    async def update_password(personal_id: UUID, password_hash: str):
+        supabase = get_supabase()
+        result = supabase.table(PersonalRepository.table).update({"password_hash": password_hash, "password_reset_token": None, "password_reset_expires_at": None}).eq("id", str(personal_id)).execute()
+        return result.data[0] if result.data else None
+
+    @staticmethod
+    async def set_password_reset_token(personal_id: UUID, token: str, expires_at):
+        supabase = get_supabase()
+        result = supabase.table(PersonalRepository.table).update({"password_reset_token": token, "password_reset_expires_at": expires_at.isoformat()}).eq("id", str(personal_id)).execute()
+        return result.data[0] if result.data else None
+
+    @staticmethod
+    async def find_by_reset_token(token: str):
+        supabase = get_supabase()
+        result = supabase.table(PersonalRepository.table).select("*").eq("password_reset_token", token).execute()
+        return result.data[0] if result.data else None
