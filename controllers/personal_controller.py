@@ -16,6 +16,16 @@ class ResetPasswordDTO(BaseModel):
     password: str = Field(..., min_length=8)
 
 
+class LoginRequestDTO(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+
+
+class TokenResponseDTO(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
 router = APIRouter(prefix="/personal", tags=["Personal"])
 
 
@@ -36,6 +46,15 @@ async def crear_personal(data: PersonalCreateDTO):
         filtered = {k: result[k] for k in ("id", "dni", "nombre_completo", "email", "es_administrador", "codificacion_facial") if k in result}
         return filtered
     return resp
+
+
+@router.post("/login", response_model=TokenResponseDTO)
+async def login(data: LoginRequestDTO):
+    # convertir EmailStr a str antes de pasarlo al service
+    token = await PersonalService.authenticate(str(data.email), data.password)
+    if not token:
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+    return TokenResponseDTO(access_token=token)
 
 
 @router.get("/", response_model=list[PersonalResponseDTO])

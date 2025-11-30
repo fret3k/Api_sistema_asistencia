@@ -1,7 +1,7 @@
 from uuid import UUID
 from repository.personal_repository import PersonalRepository
 from dto.personal_dto.personal_request_dto import PersonalCreateDTO
-from utils.security import hash_password, generate_token, token_expiry
+from utils.security import hash_password, generate_token, token_expiry, verify_password
 from utils.mailer import send_password_reset_email
 from datetime import datetime, timezone
 from typing import cast, Optional
@@ -86,3 +86,22 @@ class PersonalService:
         password_hash = hash_password(new_password)
         await PersonalRepository.update_password(row["id"], password_hash)
         return True
+
+    @staticmethod
+    async def authenticate(email: str, password: str) -> Optional[str]:
+        """Verifica las credenciales y devuelve un token (string) si son válidas, o None si no."""
+        user = await PersonalRepository.find_by_email(email)
+        if not user:
+            return None
+        hashed = user.get("password_hash")
+        if not hashed:
+            return None
+        try:
+            valid = verify_password(password, hashed)
+        except Exception:
+            return None
+        if not valid:
+            return None
+        # Generar token de sesión (no persistido). Si se desea persistir, extender el repositorio.
+        token = generate_token()
+        return token
