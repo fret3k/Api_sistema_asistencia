@@ -1,6 +1,7 @@
 from config.supabaseClient import get_supabase
 from uuid import UUID
 from dto.personal_dto.personal_request_dto import PersonalCreateDTO
+from dto.personal_dto.personal_update_dto import PersonalUpdateDTO
 from typing import Union, Any
 
 class PersonalRepository:
@@ -32,6 +33,22 @@ class PersonalRepository:
         supabase = get_supabase()
         result = supabase.table(PersonalRepository.table).delete().eq("id", str(personal_id)).execute()
         return result.data
+
+    @staticmethod
+    async def update(personal_id: UUID, data: Union[PersonalUpdateDTO, dict[str, Any]]):
+        """
+        Actualiza un registro de personal por id.
+        """
+        supabase = get_supabase()
+        payload = data if isinstance(data, dict) else data.model_dump(exclude_none=True)
+        result = (
+            supabase
+            .table(PersonalRepository.table)
+            .update(payload)
+            .eq("id", str(personal_id))
+            .execute()
+        )
+        return result.data[0] if result.data else None
 
     @staticmethod
     async def find_by_email(email: str):

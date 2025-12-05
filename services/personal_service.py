@@ -1,30 +1,40 @@
 from uuid import UUID
+from datetime import datetime, timezone
+from typing import Optional, cast, TypedDict
+
 from repository.personal_repository import PersonalRepository
 from dto.personal_dto.personal_request_dto import PersonalCreateDTO
+from dto.personal_dto.personal_update_dto import PersonalUpdateDTO
+from dto.personal_dto.personal_response_dto import PersonalResponseDTO
+from dto.personal_dto.personal_with_encoding_dto import PersonalWithEncodingCreateDTO
+from services.encoding_face_service import EncodingFaceService
+from dto.codificacion_facial_dto.endodig_face_request_dto import EncodingFaceCreateDTO
 from utils.security import hash_password, generate_token, token_expiry, verify_password
 from utils.mailer import send_password_reset_email
-from datetime import datetime, timezone
-from typing import cast, Optional
+
+
+class AuthResult(TypedDict):
+    access_token: str
+    personal: dict
+
 
 class PersonalService:
 
     @staticmethod
     async def create(data: PersonalCreateDTO):
-        # Si viene password en el DTO, hashearla y pasar password_hash al repo
-        # usar model_dump() compatible con pydantic v2
+        """
+        Crea un nuevo personal, hasheando la contraseña antes de almacenar.
+        Compatible con Pydantic v2 (model_dump).
+        """
         payload: dict = data.model_dump()
-        # puede ser None si no se envía password
-        from typing import Optional
-        # obtener password y convertir a str si existe, si no None
-        password_raw = payload.get("password")
-        password = str(password_raw) if password_raw is not None else None
-        # eliminar la clave password del payload si existe
-        if "password" in payload:
-            del payload["password"]
-        # Asegurar que password sea str no vacío antes de hashear
-        if isinstance(password, str) and password:
-            payload["password_hash"] = hash_password(password)
-        # pasar explícitamente un dict al repositorio para evitar advertencias de tipo
+
+        # Extraer password del DTO
+        password_raw = payload.pop("password", None)
+
+        if password_raw:
+            payload["password_hash"] = hash_password(str(password_raw))
+
+        # Guardar en base de datos
         return await PersonalRepository.create(cast(dict, payload))
 
     @staticmethod
@@ -43,65 +53,191 @@ class PersonalService:
         return await PersonalRepository.delete(personal_id)
 
     @staticmethod
+    async def update(personal_id: UUID, data: PersonalUpdateDTO):
+        """
+        Actualiza un personal existente.
+        Si viene password, se hashea y se almacena en password_hash.
+        """
+        payload: dict = data.model_dump(exclude_none=True)
+
+        password_raw = payload.pop("password", None)
+        if password_raw:
+            payload["password_hash"] = hash_password(str(password_raw))
+
+        return await PersonalRepository.update(personal_id, payload)
+
+    @staticmethod
     async def find_by_email(email: str):
         return await PersonalRepository.find_by_email(email)
 
     @staticmethod
     async def create_password_reset(email: str, base_url: str) -> bool:
-        user = await PersonalService.find_by_email(email)
+        """
+        Genera un token temporal de recuperación de contraseña y envía un correo.
+        """
+        user = await PersonalRepository.find_by_email(email)
+
+        # No dar pistas si el usuario no existe → evitar enumeración de correos
         if not user:
-            # Para evitar enumeración, no revelar si existe o no
             return False
 
         token = generate_token()
         expires = token_expiry(minutes=60)
-        # persistir token y expiración
+
+        # Guardar token en la base de datos
         await PersonalRepository.set_password_reset_token(user["id"], token, expires)
 
-        # enviar email (sync) - se recomienda ejecutarlo en background desde el controller
+        # Enviar email (debe ejecutarse en background desde el controller)
         send_password_reset_email(user["email"], token, base_url)
+
         return True
 
     @staticmethod
     async def reset_password(token: str, new_password: str) -> bool:
+        """
+        Cambia la contraseña usando un token válido.
+        """
         row = await PersonalRepository.find_by_reset_token(token)
         if not row:
             return False
-        # supabase returns isoformat string for expires
+
         expires_raw = row.get("password_reset_expires_at")
         if not expires_raw:
             return False
+
         try:
-            # supabase guarda como ISO string sin offset; tratar de parsear y hacer aware
             expires = datetime.fromisoformat(expires_raw)
+
+            # Asegurar timezone UTC
             if expires.tzinfo is None:
-                # asumimos UTC
                 expires = expires.replace(tzinfo=timezone.utc)
+
         except Exception:
             return False
 
         if expires < datetime.now(timezone.utc):
             return False
 
+        # Hashear nueva contraseña
         password_hash = hash_password(new_password)
+
         await PersonalRepository.update_password(row["id"], password_hash)
+
         return True
 
     @staticmethod
-    async def authenticate(email: str, password: str) -> Optional[str]:
-        """Verifica las credenciales y devuelve un token (string) si son válidas, o None si no."""
+    async def authenticate(email: str, password: str) -> Optional[AuthResult]:
+        """
+        Autentica a un usuario y retorna un token y los datos personales
+        si las credenciales son válidas.
+        """
         user = await PersonalRepository.find_by_email(email)
+
         if not user:
             return None
+
         hashed = user.get("password_hash")
         if not hashed:
             return None
+
         try:
             valid = verify_password(password, hashed)
         except Exception:
             return None
+
         if not valid:
             return None
-        # Generar token de sesión (no persistido). Si se desea persistir, extender el repositorio.
+
+        # Token simple (no persistido)
         token = generate_token()
-        return token
+
+        # Normalizar datos públicos del usuario usando el DTO de respuesta
+        personal_public = PersonalResponseDTO.model_validate(user).model_dump()
+
+        return AuthResult(access_token=token, personal=personal_public)
+
+    @staticmethod
+    async def create_with_encoding(data: PersonalWithEncodingCreateDTO):
+        """
+        Crea un nuevo personal junto con su codificación facial en una sola operación.
+        Primero crea el personal, luego crea la codificación facial asociada.
+        
+        Returns:
+            dict: Contiene personal_id, encoding_id y message (todos como strings para JSON)
+        """
+        # Validar embedding
+        if not data.embedding:
+            raise ValueError("El embedding no puede estar vacío")
+        
+        if not isinstance(data.embedding, list):
+            raise ValueError("El embedding debe ser un array")
+        
+        if len(data.embedding) != 128:
+            raise ValueError(f"El embedding debe tener exactamente 128 valores, se recibieron {len(data.embedding)}")
+        
+        # Validar que todos los valores sean números
+        if not all(isinstance(x, (int, float)) for x in data.embedding):
+            raise ValueError("Todos los valores del embedding deben ser números")
+        
+        # Separar datos del personal y del encoding
+        personal_data = PersonalCreateDTO(
+            dni=data.dni,
+            nombre=data.nombre,
+            apellido_paterno=data.apellido_paterno,
+            apellido_materno=data.apellido_materno,
+            email=data.email,
+            es_administrador=data.es_administrador,
+            password=data.password
+        )
+        
+        # Crear el personal
+        personal_result = await PersonalService.create(personal_data)
+        
+        if not personal_result:
+            raise Exception("No se pudo crear el personal")
+        
+        # Obtener el personal_id (Supabase devuelve strings)
+        personal_id_raw = personal_result.get("id")
+        if not personal_id_raw:
+            raise Exception("No se recibió el ID del personal creado")
+        
+        # Convertir a UUID para validación y uso
+        if isinstance(personal_id_raw, str):
+            personal_id_uuid = UUID(personal_id_raw)
+        else:
+            personal_id_uuid = personal_id_raw
+            personal_id_raw = str(personal_id_uuid)
+        
+        # Crear la codificación facial
+        encoding_data = EncodingFaceCreateDTO(
+            personal_id=personal_id_uuid,
+            embedding=data.embedding
+        )
+        
+        encoding_result = await EncodingFaceService.create(encoding_data)
+        
+        if not encoding_result:
+            # Si falla la creación del encoding, eliminar el personal creado
+            try:
+                await PersonalService.delete(personal_id_uuid)
+            except Exception:
+                pass  # Si falla el delete, continuar
+            raise Exception("No se pudo crear la codificación facial")
+        
+        # Obtener el encoding_id (Supabase devuelve strings)
+        encoding_id_raw = encoding_result.get("id")
+        if not encoding_id_raw:
+            raise Exception("No se recibió el ID de la codificación facial creada")
+        
+        # Convertir a string para retorno JSON
+        if isinstance(encoding_id_raw, str):
+            encoding_id_str = encoding_id_raw
+        else:
+            encoding_id_str = str(encoding_id_raw)
+        
+        # Retornar como strings para evitar problemas de serialización JSON
+        return {
+            "personal_id": personal_id_raw,
+            "encoding_id": encoding_id_str,
+            "message": "Personal y codificación facial registrados correctamente"
+        }

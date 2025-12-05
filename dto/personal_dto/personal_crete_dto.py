@@ -1,7 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 
-
-class PersonalCreateDTO(BaseModel):
+class CodingFaceCreateRequest(BaseModel):
     dni: str
     nombre: str
     apellido_paterno: str
@@ -9,5 +8,3 @@ class PersonalCreateDTO(BaseModel):
     email: EmailStr
     es_administrador: bool = False
     password: str = Field(..., min_length=8)
-
-

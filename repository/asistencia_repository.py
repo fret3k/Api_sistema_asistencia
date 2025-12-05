@@ -16,6 +16,7 @@ class AsistenciaRepository:
 
     @staticmethod
     async def registrar_asistencia(data: dict):
-        return get_supabase().table("asistencias") \
+        result = get_supabase().table("asistencias") \
             .insert(data) \
             .execute()
+        return result.data[0] if result.data else None
