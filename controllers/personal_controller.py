@@ -1,4 +1,8 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
+from fastapi.exceptions import RequestValidationError
+import logging
+
+logger = logging.getLogger(__name__)
 from uuid import UUID
 
 from dto.personal_dto.personal_request_dto import PersonalCreateDTO
@@ -103,16 +107,15 @@ async def registrar_personal_con_encoding(data: PersonalWithEncodingCreateDTO):
     el personal se mantiene creado. Se recomienda verificar ambos IDs en la respuesta.
     """
     try:
+        # Log de datos recibidos para debug
+        logger.info(f"Datos recibidos - dni: {data.dni}, nombre: {data.nombre}, email: {data.email}")
+        logger.info(f"Embedding recibido - longitud: {len(data.embedding) if data.embedding else 'None'}")
+        
         result = await PersonalService.create_with_encoding(data)
+        logger.info(f"Registro exitoso - personal_id: {result.get('personal_id')}, encoding_id: {result.get('encoding_id')}")
         return PersonalWithEncodingResponseDTO(**result)
-    except ValueError as e:
-        # Errores de validación
-        raise HTTPException(
-            status_code=422,
-            detail=f"Error de validación: {str(e)}"
-        )
     except Exception as e:
-        # Otros errores
+        logger.error(f"Error al registrar personal con codificación: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=400,
             detail=f"Error al registrar personal con codificación: {str(e)}"

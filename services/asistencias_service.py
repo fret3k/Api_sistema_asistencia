@@ -100,8 +100,16 @@ class AsistenciaService:
         if not dto.embedding or len(dto.embedding) < 64:
             return {"error": "Embedding inválido o demasiado corto"}
 
-        # Traer todas las codificaciones faciales
-        records = await EncodingFaceRepository.find_all()
+        # Traer todas las codificaciones faciales con manejo de errores de conexión
+        try:
+            records = await EncodingFaceRepository.find_all()
+        except Exception as e:
+            # Manejar errores de conexión a la base de datos
+            error_msg = str(e).lower()
+            if "timeout" in error_msg or "connect" in error_msg:
+                return {"error": "Error de conexión con la base de datos. Por favor, intenta de nuevo."}
+            return {"error": f"Error al consultar la base de datos: {str(e)}"}
+        
         if not records:
             return {"error": "No hay codificaciones faciales registradas"}
 
@@ -137,23 +145,22 @@ class AsistenciaService:
         tmp.personal_id = personal_id
         tmp.motivo = getattr(dto, "motivo", None)
 
-        # registrar asistencia usando el flujo existente pero capturando el registro devuelto
-        created = await AsistenciaRepository.registrar_asistencia({
-            "personal_id": str(personal_id),
-            "fecha": (datetime.now()).date().isoformat(),
-            "tipo_registro": self.determinar_tipo_registro(datetime.now().time()),
-            "estado": self.evaluar_estado(self.determinar_tipo_registro(datetime.now().time()), datetime.now().time()),
-            "motivo": tmp.motivo
-        })
+        # Reutilizar el método registrar_asistencia que ya incluye:
+        # - Validación de reconocimiento
+        # - Verificación de usuario existente
+        # - Verificación de registro duplicado del mismo tipo hoy
+        # - Determinación automática de tipo y estado
+        asistencia_result = await self.registrar_asistencia(tmp)
 
-        if not created:
-            return {"error": "No se pudo registrar la asistencia"}
+        # Si registrar_asistencia devolvió un error, propagarlo
+        if isinstance(asistencia_result, dict) and asistencia_result.get("error"):
+            return {"error": asistencia_result.get("error"), "score": best_score}
 
         usuario_nombre = personal.get("nombre_completo") or " ".join(filter(None, [personal.get("nombre"), personal.get("apellido_paterno")]))
 
         # devolver info junto al score y embedding match
         return {
-            "asistencia": created,
+            "asistencia": asistencia_result,
             "score": best_score,
             "matched_personal_id": personal_id,
             "usuario": usuario_nombre,

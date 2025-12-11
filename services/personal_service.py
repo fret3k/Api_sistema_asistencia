@@ -163,22 +163,8 @@ class PersonalService:
         Primero crea el personal, luego crea la codificación facial asociada.
         
         Returns:
-            dict: Contiene personal_id, encoding_id y message (todos como strings para JSON)
+            dict: Contiene personal_id, encoding_id y message
         """
-        # Validar embedding
-        if not data.embedding:
-            raise ValueError("El embedding no puede estar vacío")
-        
-        if not isinstance(data.embedding, list):
-            raise ValueError("El embedding debe ser un array")
-        
-        if len(data.embedding) != 128:
-            raise ValueError(f"El embedding debe tener exactamente 128 valores, se recibieron {len(data.embedding)}")
-        
-        # Validar que todos los valores sean números
-        if not all(isinstance(x, (int, float)) for x in data.embedding):
-            raise ValueError("Todos los valores del embedding deben ser números")
-        
         # Separar datos del personal y del encoding
         personal_data = PersonalCreateDTO(
             dni=data.dni,
@@ -196,48 +182,25 @@ class PersonalService:
         if not personal_result:
             raise Exception("No se pudo crear el personal")
         
-        # Obtener el personal_id (Supabase devuelve strings)
-        personal_id_raw = personal_result.get("id")
-        if not personal_id_raw:
-            raise Exception("No se recibió el ID del personal creado")
-        
-        # Convertir a UUID para validación y uso
-        if isinstance(personal_id_raw, str):
-            personal_id_uuid = UUID(personal_id_raw)
-        else:
-            personal_id_uuid = personal_id_raw
-            personal_id_raw = str(personal_id_uuid)
+        personal_id = personal_result["id"]
         
         # Crear la codificación facial
         encoding_data = EncodingFaceCreateDTO(
-            personal_id=personal_id_uuid,
+            personal_id=personal_id,
             embedding=data.embedding
         )
         
         encoding_result = await EncodingFaceService.create(encoding_data)
         
         if not encoding_result:
-            # Si falla la creación del encoding, eliminar el personal creado
-            try:
-                await PersonalService.delete(personal_id_uuid)
-            except Exception:
-                pass  # Si falla el delete, continuar
+            # Si falla la creación del encoding, podrías eliminar el personal creado
+            # Por ahora solo lanzamos excepción
             raise Exception("No se pudo crear la codificación facial")
         
-        # Obtener el encoding_id (Supabase devuelve strings)
-        encoding_id_raw = encoding_result.get("id")
-        if not encoding_id_raw:
-            raise Exception("No se recibió el ID de la codificación facial creada")
+        encoding_id = encoding_result["id"]
         
-        # Convertir a string para retorno JSON
-        if isinstance(encoding_id_raw, str):
-            encoding_id_str = encoding_id_raw
-        else:
-            encoding_id_str = str(encoding_id_raw)
-        
-        # Retornar como strings para evitar problemas de serialización JSON
         return {
-            "personal_id": personal_id_raw,
-            "encoding_id": encoding_id_str,
+            "personal_id": personal_id,
+            "encoding_id": encoding_id,
             "message": "Personal y codificación facial registrados correctamente"
         }
