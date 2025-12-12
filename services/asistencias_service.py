@@ -96,6 +96,10 @@ class AsistenciaService:
 
     # ----------------- Nuevo: procesar embeddings en tiempo real ------------------
     async def procesar_realtime(self, dto: RealtimeAsistenciaDTO):
+        # Configuración de validación de identidad
+        THRESHOLD = 0.78  # Umbral mínimo de similitud (aumentado para mayor seguridad)
+        MIN_MARGIN = 0.1  # Margen mínimo entre mejor y segundo mejor match
+
         # Validaciones basicas
         if not dto.embedding or len(dto.embedding) < 64:
             return {"error": "Embedding inválido o demasiado corto"}
@@ -113,8 +117,11 @@ class AsistenciaService:
         if not records:
             return {"error": "No hay codificaciones faciales registradas"}
 
+        # Encontrar los 2 mejores matches para validar unicidad
         best = None
         best_score = -1.0
+        second_best_score = -1.0
+        
         for r in records:
             # r se espera que tenga 'embedding' como lista
             emb = r.get("embedding")
@@ -122,12 +129,29 @@ class AsistenciaService:
                 continue
             score = self._cosine_similarity(dto.embedding, emb)
             if score > best_score:
+                # El mejor actual pasa a ser el segundo mejor
+                second_best_score = best_score
                 best_score = score
                 best = r
+            elif score > second_best_score:
+                # Actualizar segundo mejor si es mayor
+                second_best_score = score
 
-        THRESHOLD = 0.65
+        # Log para auditoría
+        print(f"[ASISTENCIA] Score: {best_score:.4f}, Segundo: {second_best_score:.4f}, Threshold: {THRESHOLD}")
+
+        # Validar threshold mínimo de similitud
         if best_score < THRESHOLD:
+            print(f"[ASISTENCIA] RECHAZADO - Score {best_score:.4f} < Threshold {THRESHOLD}")
             return {"error": "No se encontró un match confiable", "score": best_score}
+
+        # Validar margen de confianza (evitar matches ambiguos)
+        margin = best_score - second_best_score
+        if second_best_score > 0 and margin < MIN_MARGIN:
+            print(f"[ASISTENCIA] RECHAZADO - Margen {margin:.4f} < Mínimo {MIN_MARGIN} (match ambiguo)")
+            return {"error": "Match ambiguo, por favor intente de nuevo", "score": best_score, "margin": margin}
+        
+        print(f"[ASISTENCIA] APROBADO - Score {best_score:.4f}, Margen {margin:.4f}")
 
         personal_id = best.get("personal_id")
 
