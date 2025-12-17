@@ -1,12 +1,15 @@
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.11.0
+bcrypt==4.0.1
 certifi==2025.11.12
 cffi==2.0.0
 click==8.3.0
 colorama==0.4.6
 cryptography==46.0.3
 deprecation==2.1.0
+dnspython==2.8.0
+email-validator==2.3.0
 fastapi==0.121.2
 h11==0.16.0
 h2==4.3.0
@@ -17,7 +20,7 @@ hyperframe==6.1.0
 idna==3.11
 multidict==6.7.0
 packaging==25.0
-passlib[bcrypt]==1.7.4
+passlib==1.7.4
 postgrest==2.24.0
 propcache==0.4.1
 pycparser==2.23
@@ -38,4 +41,3 @@ typing_extensions==4.15.0
 uvicorn==0.38.0
 websockets==15.0.1
 yarl==1.22.0
-bcrypt==4.0.1
