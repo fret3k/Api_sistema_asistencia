@@ -1,7 +1,9 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, status
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, status, Query
 from dto.asistencia_dto.asistencia_dto import RegistrarAsistenciaDTO
 from dto.asistencia_dto.realtime_asistencia_dto import RealtimeAsistenciaDTO
 from services.asistencias_service import AsistenciaService
+from datetime import date
+from typing import Optional
 
 router = APIRouter(prefix="/asistencia" , tags=["Asistencias"])
 service = AsistenciaService()
@@ -31,9 +33,35 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+@router.get("/personal")
+async def get_personal_status(fecha: Optional[date] = None):
+    return await service.listar_personal_status(fecha)
+
+@router.get("/historial")
+async def get_historial(
+    fecha_inicio: date, 
+    fecha_fin: date, 
+    personal_id: Optional[str] = None
+):
+    return await service.obtener_historial_completo(fecha_inicio, fecha_fin, personal_id)
+
+@router.get("/estadisticas")
+async def get_estadisticas(fecha: Optional[date] = None):
+    if not fecha:
+        fecha = date.today()
+    return await service.obtener_estadisticas_dia(fecha)
+
 @router.post("/registrar")
 async def registrar_asistencia(dto: RegistrarAsistenciaDTO):
-    return await service.registrar_asistencia(dto)
+    # DTO needs to support manual entry fields if not already
+    result = await service.registrar_asistencia(dto)
+    
+    if isinstance(result, dict) and result.get("error"):
+         raise HTTPException(status_code=400, detail=result.get("error"))
+
+    # Notificar WS
+    await manager.broadcast({"evento": "asistencia_registrada", "data": result})
+    return result
 
 
 @router.post("/realtime")

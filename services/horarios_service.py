@@ -20,8 +20,9 @@ class HorariosService:
             if clave in HORARIOS and isinstance(valores, dict):
                 for subclave, valor in valores.items():
                     if valor is not None:
-                        # Convertimos "HH:MM" → time
-                        hora_obj = time.fromisoformat(valor)
-                        HORARIOS[clave][subclave] = hora_obj
+                        if isinstance(valor, time):
+                             HORARIOS[clave][subclave] = valor
+                        elif isinstance(valor, str):
+                             HORARIOS[clave][subclave] = time.fromisoformat(valor)
 
         return True

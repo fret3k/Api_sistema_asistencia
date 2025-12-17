@@ -6,6 +6,8 @@ from typing import Optional
 class HorarioItemDTO(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    inicio_marcacion: Optional[time] = None
+    entrada: Optional[time] = None
     a_tiempo: Optional[time] = None
     tarde: Optional[time] = None
     limite_temprano: Optional[time] = None
