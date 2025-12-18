@@ -57,7 +57,7 @@ origins = [
     "http://localhost:3000",      # Create React App (por si acaso)
     "http://127.0.0.1:5174",
     "http://localhost:5173",
-    "https://app-sismt-asisten-f.vercel.app/",      # Alternativa localhost
+    "https://app-sismt-asisten-f.vercel.app",      # Alternativa localhost
 ]
 
 app.add_middleware(
