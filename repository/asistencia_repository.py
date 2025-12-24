@@ -46,3 +46,16 @@ class AsistenciaRepository:
 
         result = query.order("marca_tiempo", desc=True).execute()
         return result.data if result.data else []
+
+    @staticmethod
+    async def obtener_recientes(limite: int = 5):
+        """
+        Obtiene las asistencias más recientes con información del personal
+        """
+        result = get_supabase().table("asistencias") \
+            .select("*, personal(*)") \
+            .order("marca_tiempo", desc=True) \
+            .limit(limite) \
+            .execute()
+        
+        return result.data if result.data else []

@@ -18,3 +18,14 @@ class SolicitudAusenciaSchema(BaseModel):
     class Config:
         from_attributes = True
 
+class SolicitudAusenciaCreate(BaseModel):
+    personal_id: UUID
+    tipo_ausencia: str
+    fecha_inicio: date
+    fecha_fin: date
+    hora_inicio: Optional[time] = None
+    hora_fin: Optional[time] = None
+    razon: str
+
+class SolicitudAusenciaUpdate(BaseModel):
+    estado_solicitud: str

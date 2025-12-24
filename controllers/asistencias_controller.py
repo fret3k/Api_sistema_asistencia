@@ -51,6 +51,14 @@ async def get_estadisticas(fecha: Optional[date] = None):
         fecha = date.today()
     return await service.obtener_estadisticas_dia(fecha)
 
+@router.get("/recientes")
+async def get_recientes(limite: int = Query(5, ge=1, le=20)):
+    """
+    Obtiene las asistencias más recientes
+    - limite: número máximo de asistencias a retornar (por defecto 5, máximo 20)
+    """
+    return await service.obtener_asistencias_recientes(limite)
+
 @router.post("/registrar")
 async def registrar_asistencia(dto: RegistrarAsistenciaDTO):
     # DTO needs to support manual entry fields if not already
@@ -74,31 +82,13 @@ async def registrar_realtime(dto: RealtimeAsistenciaDTO):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error interno")
 
     if isinstance(result, dict) and result.get("error"):
-        # devolver 400 con detalle para que frontend/Postman lo muestre
+        # devolver 400 con detalle para que frontend lo muestre
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("error"))
 
-    # Normalizar respuesta: extraer usuario y campos principales
-    asistencia = result.get("asistencia") if isinstance(result, dict) else None
-    score = result.get("score") if isinstance(result, dict) else None
-    matched_id = result.get("matched_personal_id") if isinstance(result, dict) else None
-
-    resp = {"score": score, "matched_personal_id": matched_id}
-
-    if isinstance(asistencia, dict):
-        # Si el servicio devolvió la estructura de registrar_asistencia
-        resp.update({
-            "mensaje": asistencia.get("mensaje"),
-            "usuario": asistencia.get("usuario"),
-            "tipo": asistencia.get("tipo"),
-            "estado": asistencia.get("estado"),
-            "fecha": asistencia.get("fecha"),
-        })
-
     # Notificar a clientes websocket conectados que hubo una nueva asistencia
-    if not isinstance(result, dict) or (isinstance(result, dict) and result.get("asistencia")):
-        await manager.broadcast({"evento": "asistencia_registrada", "data": resp})
+    await manager.broadcast({"evento": "asistencia_registrada", "data": result})
 
-    return resp
+    return result
 
 
 @router.websocket("/ws")

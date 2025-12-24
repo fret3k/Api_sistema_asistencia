@@ -22,4 +22,8 @@ class SolicitudesAusenciasRepository:
         supabase = get_supabase()
         result = supabase.table(SolicitudesAusenciasRepository.table).select("*").execute()
         return result.data
-
+    @staticmethod
+    async def update_estado(id: UUID, estado: str):
+        supabase = get_supabase()
+        result = supabase.table(SolicitudesAusenciasRepository.table).update({"estado_solicitud": estado}).eq("id", str(id)).execute()
+        return result.data[0] if result.data else None

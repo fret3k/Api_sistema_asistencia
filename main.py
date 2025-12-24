@@ -72,8 +72,11 @@ app.add_middleware(
 app.include_router(PersonalRouter)
 app.include_router(asistencia_router)
 app.include_router(EncodigFaceRouter)
-
 app.include_router(HorariosRouter)
+
+from controllers.solicitudes_ausencias_controller import router as SolicitudesAusenciasRouter
+app.include_router(SolicitudesAusenciasRouter)
+
 @app.get("/")
 def root():
     return {"message": "API funcionando correctamente"}

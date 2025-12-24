@@ -11,47 +11,40 @@ from uuid import UUID
 class AsistenciaService:
 
     def evaluar_estado(self, tipo_registro: str, hora_actual: time):
-        cfg = HORARIOS.get(tipo_registro)
-        if not cfg:
-            return "OMISION"
-
-        if tipo_registro in ["ENTRADA_M", "ENTRADA_T"]:
+        """
+        Evalúa el estado de la asistencia según el turno
+        """
+        if tipo_registro == "MAÑANA":
+            cfg = HORARIOS.get("ENTRADA_M")
+            if not cfg:
+                return "NORMAL"
             if hora_actual <= cfg["a_tiempo"]:
                 return "A TIEMPO"
-            elif hora_actual <= cfg["tarde"]:
-                return "TARDE"
-            # Nuevo: Si pasa de la hora tardía configurada, es inasistencia (FALTA)
-            return "FALTA"
+            return "TARDE"
+        
+        elif tipo_registro == "TARDE":
+            cfg = HORARIOS.get("ENTRADA_T")
+            if not cfg:
+                return "NORMAL"
+            if hora_actual <= cfg["a_tiempo"]:
+                return "A TIEMPO"
+            return "TARDE"
 
-        if tipo_registro in ["SALIDA_M", "SALIDA_T"]:
-            if hora_actual < cfg["limite_temprano"]:
-                return "SALIDA_ANTICIPADA"
-            return "A TIEMPO"
-
-        return "OMISION"
+        return "NORMAL"
 
     def determinar_tipo_registro(self, hora_actual: time):
-        # Usamos los inicios de marcacion para delimitar
-        # ENTRADA_M: 07:50 - 12:00
-        inicio_em = HORARIOS["ENTRADA_M"].get("inicio_marcacion", time(6,0))
-        inicio_sm = HORARIOS["SALIDA_M"].get("inicio_marcacion", time(12,0))
+        """
+        Simplificado: Solo registra un turno (MAÑANA o TARDE)
+        Ya no distingue entre entrada y salida
+        """
+        # Límite entre turno mañana y tarde (aproximadamente mediodía/inicio tarde)
+        inicio_turno_tarde = HORARIOS["ENTRADA_T"].get("inicio_marcacion", time(14, 20))
         
-        # SALIDA_M: 12:01 - 14:10 (Antes de que permita marcar entrada tarde)
-        inicio_et = HORARIOS["ENTRADA_T"].get("inicio_marcacion", time(14,20))
-        
-        # SALIDA_T: Desde inicio de salida tarde
-        inicio_st = HORARIOS["SALIDA_T"].get("inicio_marcacion", time(16,0))
-
-        if inicio_em <= hora_actual < inicio_sm:
-            return "ENTRADA_M"
-        if inicio_sm <= hora_actual < inicio_et:
-            return "SALIDA_M"
-        if inicio_et <= hora_actual < inicio_st:
-            return "ENTRADA_T"
-        if inicio_st <= hora_actual <= time(23, 59):
-            return "SALIDA_T"
-            
-        return "OMISION"
+        # Si es antes de las 14:20, es turno mañana
+        if hora_actual < inicio_turno_tarde:
+            return "MAÑANA"
+        else:
+            return "TARDE"
 
     async def registrar_asistencia(self, dto):
 
@@ -90,12 +83,19 @@ class AsistenciaService:
         for r in registros:
             if r["tipo_registro"] == tipo_registro:
                 usuario_nombre = personal.get("nombre_completo") or " ".join(filter(None, [personal.get("nombre"), personal.get("apellido_paterno"), personal.get("apellido_materno")]))
+                
+                # Mensajes amigables para usuarios
+                turno_texto = "turno de la mañana" if tipo_registro == "MAÑANA" else "turno de la tarde"
+                hora_registro = r["marca_tiempo"].split("T")[1].split(".")[0][:5] if "T" in str(r["marca_tiempo"]) else "N/A"
+                
                 return {
-                    "mensaje": "Registro ya realizado",
+                    "ya_registrado": True,
+                    "mensaje": f"✓ Ya registraste tu asistencia del {turno_texto}",
+                    "detalle": f"Tu marca fue a las {hora_registro}",
                     "usuario": usuario_nombre,
-                    "tipo": tipo_registro,
+                    "turno": turno_texto,
                     "estado": r["estado"],
-                    "marca_tiempo": r["marca_tiempo"],
+                    "hora": hora_registro,
                 }
 
         # Registrar en la tabla
@@ -111,12 +111,28 @@ class AsistenciaService:
 
         usuario_nombre = personal.get("nombre_completo") or " ".join(filter(None, [personal.get("nombre"), personal.get("apellido_paterno"), personal.get("apellido_materno")]))
 
+        # Mensajes amigables según el estado
+        turno_texto = "turno de la mañana" if tipo_registro == "MAÑANA" else "turno de la tarde"
+        hora_registro = hora_actual.strftime("%H:%M")
+        
+        if estado == "A TIEMPO":
+            mensaje = f"✓ Asistencia registrada - {turno_texto}"
+            detalle = f"¡Llegaste a tiempo! Hora: {hora_registro}"
+        elif estado == "TARDE":
+            mensaje = f"⚠ Asistencia registrada - {turno_texto}"
+            detalle = f"Llegaste tarde. Hora: {hora_registro}"
+        else:
+            mensaje = f"✓ Asistencia registrada - {turno_texto}"
+            detalle = f"Hora de registro: {hora_registro}"
+
         return {
-            "mensaje": "Asistencia registrada correctamente",
+            "exito": True,
+            "mensaje": mensaje,
+            "detalle": detalle,
             "usuario": usuario_nombre,
-            "tipo": tipo_registro,
+            "turno": turno_texto,
             "estado": estado,
-            "fecha": hoy.isoformat(),
+            "hora": hora_registro,
         }
 
     async def listar_personal_status(self, fecha: date = None):
@@ -143,9 +159,8 @@ class AsistenciaService:
             pid = p["id"]
             regs = asistencias_map.get(pid, [])
             
-            # Calcular estado del día (Presente si tiene al menos una entrada)
-            tiene_entrada = any(r["tipo_registro"] in ["ENTRADA_M", "ENTRADA_T"] for r in regs)
-            estado_dia = "PRESENTE" if tiene_entrada else "AUSENTE" # Simplificado
+            # Calcular estado del día (Presente si tiene al menos un registro)
+            estado_dia = "PRESENTE" if regs else "AUSENTE"
             
             # Ultima marcación
             ultima_marca = None
@@ -244,6 +259,73 @@ class AsistenciaService:
             "tardanzas": tardanzas
         }
 
+    async def obtener_asistencias_recientes(self, limite: int = 5):
+        """
+        Obtiene las últimas asistencias registradas y estadísticas generales
+        """
+        from repository.asistencia_repository import AsistenciaRepository
+        
+        try:
+            # Obtener asistencias recientes ordenadas por fecha y hora
+            registros = await AsistenciaRepository.obtener_recientes(limite)
+            
+            # Obtener estadísticas del día para el panel
+            stats_raw = await self.obtener_estadisticas_dia(date.today())
+            
+            # Formatear para el frontend
+            lista_recientes = []
+            for r in registros:
+                # Extraer datos del personal
+                personal = r.get("personal") or {}
+                nombre = personal.get("nombre_completo") if isinstance(personal, dict) else "Usuario"
+                
+                # Si no hay nombre_completo, construirlo
+                if not nombre or nombre == "Usuario":
+                    nombre = " ".join(filter(None, [
+                        personal.get("nombre", ""),
+                        personal.get("apellido_paterno", ""),
+                        personal.get("apellido_materno", "")
+                    ])) if isinstance(personal, dict) else "Usuario"
+                
+                # Formatear turno
+                tipo_registro = r.get("tipo_registro", "")
+                turno_texto = "Turno Mañana" if "MAÑANA" in tipo_registro else "Turno Tarde"
+                
+                # Formatear hora
+                marca_tiempo = r.get("marca_tiempo", "")
+                hora = str(marca_tiempo).split("T")[1].split(".")[0] if "T" in str(marca_tiempo) else "N/A"
+                
+                # Formatear fecha
+                timestamp_obj = None
+                try:
+                    timestamp_obj = datetime.fromisoformat(str(marca_tiempo).replace('Z', '+00:00'))
+                    fecha = timestamp_obj.strftime("%d/%m")
+                except:
+                    fecha = str(r.get("fecha", ""))
+
+                lista_recientes.append({
+                    "id": r.get("id"),
+                    "usuario": nombre,
+                    "turno": turno_texto,
+                    "estado": r.get("estado", "NORMAL"),
+                    "hora": hora,
+                    "fecha": fecha
+                })
+            
+            return {
+                "asistencias": lista_recientes,
+                "estadisticas": {
+                    "presentes": stats_raw.get("presentes", 0),
+                    "tardanzas": stats_raw.get("tardanzas", 0),
+                    "faltas": stats_raw.get("ausentes", 0),
+                    "total": stats_raw.get("total_personal", 0)
+                }
+            }
+        except Exception as e:
+            print(f"Error en obtener_asistencias_recientes: {e}")
+            return {"asistencias": [], "estadisticas": {"presentes": 0, "tardanzas": 0, "faltas": 0, "total": 0}}
+
+
     # ----------------- Nuevo: procesar embeddings en tiempo real ------------------
     async def procesar_realtime(self, dto: RealtimeAsistenciaDTO):
         # Configuración de validación de identidad
@@ -252,7 +334,7 @@ class AsistenciaService:
 
         # Validaciones basicas
         if not dto.embedding or len(dto.embedding) < 64:
-            return {"error": "Embedding inválido o demasiado corto"}
+            return {"error": "❌ Error al procesar tu rostro. Por favor, intenta de nuevo."}
 
         # Traer todas las codificaciones faciales con manejo de errores de conexión
         try:
@@ -261,11 +343,11 @@ class AsistenciaService:
             # Manejar errores de conexión a la base de datos
             error_msg = str(e).lower()
             if "timeout" in error_msg or "connect" in error_msg:
-                return {"error": "Error de conexión con la base de datos. Por favor, intenta de nuevo."}
-            return {"error": f"Error al consultar la base de datos: {str(e)}"}
+                return {"error": "⚠ No se puede conectar al sistema. Por favor, intenta de nuevo."}
+            return {"error": "⚠ Error del sistema. Contacta al administrador."}
         
         if not records:
-            return {"error": "No hay codificaciones faciales registradas"}
+            return {"error": "❌ No hay usuarios registrados en el sistema."}
 
         # Encontrar los 2 mejores matches para validar unicidad
         best = None
@@ -287,19 +369,19 @@ class AsistenciaService:
                 # Actualizar segundo mejor si es mayor
                 second_best_score = score
 
-        # Log para auditoría
+        # Log para auditoría (solo para consola del servidor)
         print(f"[ASISTENCIA] Score: {best_score:.4f}, Segundo: {second_best_score:.4f}, Threshold: {THRESHOLD}")
 
         # Validar threshold mínimo de similitud
         if best_score < THRESHOLD:
             print(f"[ASISTENCIA] RECHAZADO - Score {best_score:.4f} < Threshold {THRESHOLD}")
-            return {"error": "No se encontró un match confiable", "score": best_score}
+            return {"error": "❌ No se pudo identificar tu rostro. Asegúrate de estar bien iluminado e intenta de nuevo."}
 
         # Validar margen de confianza (evitar matches ambiguos)
         margin = best_score - second_best_score
         if second_best_score > 0 and margin < MIN_MARGIN:
             print(f"[ASISTENCIA] RECHAZADO - Margen {margin:.4f} < Mínimo {MIN_MARGIN} (match ambiguo)")
-            return {"error": "Match ambiguo, por favor intente de nuevo", "score": best_score, "margin": margin}
+            return {"error": "⚠ No se pudo verificar tu identidad con certeza. Por favor, intenta de nuevo."}
         
         print(f"[ASISTENCIA] APROBADO - Score {best_score:.4f}, Margen {margin:.4f}")
 
@@ -308,7 +390,7 @@ class AsistenciaService:
         # verificar que el personal exista en la tabla personal
         personal = await PersonalRepository.find_by_id(personal_id)
         if not personal:
-            return {"error": "Usuario no registrado en la base de datos"}
+            return {"error": "❌ Usuario no encontrado en el sistema."}
 
         # construir un dto simplificado para reutilizar registrar_asistencia
         class _TmpDTO:
@@ -328,16 +410,14 @@ class AsistenciaService:
 
         # Si registrar_asistencia devolvió un error, propagarlo
         if isinstance(asistencia_result, dict) and asistencia_result.get("error"):
-            return {"error": asistencia_result.get("error"), "score": best_score}
+            return asistencia_result
 
         usuario_nombre = personal.get("nombre_completo") or " ".join(filter(None, [personal.get("nombre"), personal.get("apellido_paterno")]))
 
-        # devolver info junto al score y embedding match
+        # Devolver la información completa sin exponer datos técnicos
         return {
-            "asistencia": asistencia_result,
-            "score": best_score,
-            "matched_personal_id": personal_id,
-            "usuario": usuario_nombre,
+            **asistencia_result,  # Incluye mensaje, detalle, usuario, turno, estado, hora
+            "reconocido": True,
         }
 
     def _cosine_similarity(self, a, b):
