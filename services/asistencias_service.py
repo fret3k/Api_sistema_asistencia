@@ -1,5 +1,6 @@
 from datetime import datetime, date, time
 from config.config_horarios import HORARIOS
+from config.timezone_config import LOCAL_TIMEZONE
 from repository.asistencia_repository import AsistenciaRepository
 from repository.personal_repository import PersonalRepository
 from repository.encoding_face_repository import EncodingFaceRepository
@@ -60,8 +61,9 @@ class AsistenciaService:
         if not personal:
             return {"error": "Usuario no encontrado"}
 
-        hoy = date.today()
-        ahora = datetime.now()
+        # Usar la zona horaria local configurada (UTC-5)
+        ahora = datetime.now(LOCAL_TIMEZONE)
+        hoy = ahora.date()
         hora_actual = ahora.time()
 
         # Si el DTO trae tipo_registro forzado (manual), usarlo. Si no, automatico.
@@ -98,10 +100,11 @@ class AsistenciaService:
                     "hora": hora_registro,
                 }
 
-        # Registrar en la tabla
+        # Registrar en la tabla con timestamp explícito en zona horaria local
         data = {
             "personal_id": str(dto.personal_id),
             "fecha": hoy.isoformat(),
+            "marca_tiempo": ahora.isoformat(),  # Timestamp con zona horaria local
             "tipo_registro": tipo_registro,
             "estado": estado,
             "motivo": dto.motivo if hasattr(dto, "motivo") else None
@@ -137,7 +140,7 @@ class AsistenciaService:
 
     async def listar_personal_status(self, fecha: date = None):
         if not fecha:
-            fecha = date.today()
+            fecha = datetime.now(LOCAL_TIMEZONE).date()
 
         # 1. Obtener todo el personal
         all_personal = await PersonalRepository.find_all()
@@ -270,7 +273,7 @@ class AsistenciaService:
             registros = await AsistenciaRepository.obtener_recientes(limite)
             
             # Obtener estadísticas del día para el panel
-            stats_raw = await self.obtener_estadisticas_dia(date.today())
+            stats_raw = await self.obtener_estadisticas_dia(datetime.now(LOCAL_TIMEZONE).date())
             
             # Formatear para el frontend
             lista_recientes = []

@@ -2,7 +2,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, st
 from dto.asistencia_dto.asistencia_dto import RegistrarAsistenciaDTO
 from dto.asistencia_dto.realtime_asistencia_dto import RealtimeAsistenciaDTO
 from services.asistencias_service import AsistenciaService
-from datetime import date
+from datetime import date, datetime
+from config.timezone_config import LOCAL_TIMEZONE
 from typing import Optional
 
 router = APIRouter(prefix="/asistencia" , tags=["Asistencias"])
@@ -48,7 +49,7 @@ async def get_historial(
 @router.get("/estadisticas")
 async def get_estadisticas(fecha: Optional[date] = None):
     if not fecha:
-        fecha = date.today()
+        fecha = datetime.now(LOCAL_TIMEZONE).date()
     return await service.obtener_estadisticas_dia(fecha)
 
 @router.get("/recientes")

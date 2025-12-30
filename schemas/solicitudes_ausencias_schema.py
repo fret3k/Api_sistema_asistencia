@@ -29,3 +29,4 @@ class SolicitudAusenciaCreate(BaseModel):
 
 class SolicitudAusenciaUpdate(BaseModel):
     estado_solicitud: str
+
