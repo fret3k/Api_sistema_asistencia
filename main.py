@@ -10,6 +10,7 @@ from controllers.encoding_face_controller import router as EncodigFaceRouter
 from fastapi.middleware.cors import CORSMiddleware
 from docs.api_info import API_TITLE, API_DESCRIPTION, API_VERSION, API_CONTACT
 from controllers.horario_controller import router as HorariosRouter
+from controllers.reportes_controller import router as ReportesRouter
 import logging
 
 # Configurar logging
@@ -76,6 +77,7 @@ app.include_router(HorariosRouter)
 
 from controllers.solicitudes_ausencias_controller import router as SolicitudesAusenciasRouter
 app.include_router(SolicitudesAusenciasRouter)
+app.include_router(ReportesRouter)
 
 @app.get("/")
 def root():

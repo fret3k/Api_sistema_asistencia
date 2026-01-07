@@ -39,10 +39,10 @@ Ejemplo de timestamp guardado:
 ```
 
 ### 4. Ventajas
-- ✅ Las fechas y horas se guardan en la zona horaria local
-- ✅ La base de datos recibe timestamps con información de zona horaria
-- ✅ El frontend recibe las horas correctas sin necesidad de conversión
-- ✅ Centralizado en un solo archivo de configuración
+-  Las fechas y horas se guardan en la zona horaria local
+-  La base de datos recibe timestamps con información de zona horaria
+-  El frontend recibe las horas correctas sin necesidad de conversión
+-  Centralizado en un solo archivo de configuración
 
 ### 5. Cambio de Zona Horaria
 Si necesitas cambiar la zona horaria en el futuro, solo modifica el archivo `config/timezone_config.py`:
