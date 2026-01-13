@@ -62,7 +62,16 @@ class AsistenciaService:
             return {"error": "Usuario no encontrado"}
 
         # Usar la zona horaria local configurada (UTC-5)
-        ahora = datetime.now(LOCAL_TIMEZONE)
+        if hasattr(dto, 'marca_tiempo') and dto.marca_tiempo:
+            # Asegurarse de que el datetime sea consciente de la zona horaria local
+            ahora = dto.marca_tiempo
+            if ahora.tzinfo is None:
+                ahora = ahora.replace(tzinfo=LOCAL_TIMEZONE)
+            else:
+                ahora = ahora.astimezone(LOCAL_TIMEZONE)
+        else:
+            ahora = datetime.now(LOCAL_TIMEZONE)
+
         hoy = ahora.date()
         hora_actual = ahora.time()
 
@@ -294,16 +303,17 @@ class AsistenciaService:
                 tipo_registro = r.get("tipo_registro", "")
                 turno_texto = "Turno Mañana" if "MAÑANA" in tipo_registro else "Turno Tarde"
                 
-                # Formatear hora
-                marca_tiempo = r.get("marca_tiempo", "")
-                hora = str(marca_tiempo).split("T")[1].split(".")[0] if "T" in str(marca_tiempo) else "N/A"
-                
-                # Formatear fecha
-                timestamp_obj = None
+                # Formatear hora y fecha en zona horaria local
+                marca_tiempo_raw = r.get("marca_tiempo", "")
                 try:
-                    timestamp_obj = datetime.fromisoformat(str(marca_tiempo).replace('Z', '+00:00'))
-                    fecha = timestamp_obj.strftime("%d/%m")
-                except:
+                    # Supabase devuelve UTC, convertimos a local
+                    dt_utc = datetime.fromisoformat(str(marca_tiempo_raw).replace('Z', '+00:00'))
+                    dt_local = dt_utc.astimezone(LOCAL_TIMEZONE)
+                    hora = dt_local.strftime("%H:%M:%S")
+                    fecha = dt_local.strftime("%d/%m")
+                except Exception as e:
+                    print(f"Error formateando fecha: {e}")
+                    hora = str(marca_tiempo_raw).split("T")[1].split(".")[0] if "T" in str(marca_tiempo_raw) else "N/A"
                     fecha = str(r.get("fecha", ""))
 
                 lista_recientes.append({
@@ -403,6 +413,29 @@ class AsistenciaService:
         tmp.reconocimiento_valido = True
         tmp.personal_id = personal_id
         tmp.motivo = getattr(dto, "motivo", None)
+        tmp.marca_tiempo = getattr(dto, "marca_tiempo", None)
+
+        # Si solo se requiere validar identidad (para mostrar modal de confirmación)
+        if getattr(dto, "solo_validar", False):
+            # Determinar qué turno y estado le correspondería
+            ahora = datetime.now(LOCAL_TIMEZONE)
+            if dto.marca_tiempo:
+                ahora = dto.marca_tiempo.astimezone(LOCAL_TIMEZONE) if dto.marca_tiempo.tzinfo else dto.marca_tiempo.replace(tzinfo=LOCAL_TIMEZONE)
+            
+            tipo_registro = self.determinar_tipo_registro(ahora.time())
+            estado = self.evaluar_estado(tipo_registro, ahora.time())
+            turno_texto = "turno de la mañana" if tipo_registro == "MAÑANA" else "turno de la tarde"
+            
+            return {
+                "reconocido": True,
+                "personal_id": personal_id,
+                "usuario": personal.get("nombre_completo") or f"{personal.get('nombre')} {personal.get('apellido_paterno')}",
+                "turno": turno_texto,
+                "tipo_registro": tipo_registro,
+                "estado": estado,
+                "hora": ahora.strftime("%H:%M:%S"),
+                "preview": True
+            }
 
         # Reutilizar el método registrar_asistencia que ya incluye:
         # - Validación de reconocimiento

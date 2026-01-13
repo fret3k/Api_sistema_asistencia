@@ -24,6 +24,7 @@ class RealtimeAsistenciaDTO(BaseModel):
     marca_tiempo: Optional[datetime] = None
     tipo_registro: Optional[str] = None
     imagen_base64: Optional[str] = None
+    solo_validar: bool = False
 
     @field_validator("embedding")
     def check_embedding_length(cls, v):
