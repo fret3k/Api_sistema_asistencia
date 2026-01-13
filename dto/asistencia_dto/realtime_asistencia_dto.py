@@ -25,6 +25,8 @@ class RealtimeAsistenciaDTO(BaseModel):
     tipo_registro: Optional[str] = None
     imagen_base64: Optional[str] = None
     solo_validar: bool = False
+    threshold: Optional[float] = 0.78  # Umbral de similitud configurable
+    min_margin: Optional[float] = 0.08  # Margen mínimo entre matches
 
     @field_validator("embedding")
     def check_embedding_length(cls, v):

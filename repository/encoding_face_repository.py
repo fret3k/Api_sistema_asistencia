@@ -34,3 +34,8 @@ class EncodingFaceRepository:
         supabase = get_supabase()
         result = supabase.table(EncodingFaceRepository.table).delete().eq("id", str(id)).execute()
         return result.data
+    @staticmethod
+    async def delete_by_personal_id(personal_id: UUID):
+        supabase = get_supabase()
+        result = supabase.table(EncodingFaceRepository.table).delete().eq("personal_id", str(personal_id)).execute()
+        return result.data

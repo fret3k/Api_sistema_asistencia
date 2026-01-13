@@ -59,3 +59,10 @@ class AsistenciaRepository:
             .execute()
         
         return result.data if result.data else []
+    @staticmethod
+    async def delete_by_personal_id(personal_id: str):
+        result = get_supabase().table("asistencias") \
+            .delete() \
+            .eq("personal_id", str(personal_id)) \
+            .execute()
+        return result.data

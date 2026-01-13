@@ -39,9 +39,9 @@ class AsistenciaService:
         Ya no distingue entre entrada y salida
         """
         # Límite entre turno mañana y tarde (aproximadamente mediodía/inicio tarde)
-        inicio_turno_tarde = HORARIOS["ENTRADA_T"].get("inicio_marcacion", time(14, 20))
+        inicio_turno_tarde = HORARIOS["ENTRADA_T"].get("inicio_marcacion", time(14, 0))
         
-        # Si es antes de las 14:20, es turno mañana
+        # Si es antes de las 14:00, es turno mañana
         if hora_actual < inicio_turno_tarde:
             return "MAÑANA"
         else:
@@ -101,8 +101,8 @@ class AsistenciaService:
                 
                 return {
                     "ya_registrado": True,
-                    "mensaje": f"✓ Ya registraste tu asistencia del {turno_texto}",
-                    "detalle": f"Tu marca fue a las {hora_registro}",
+                    "mensaje": f"✓ Ya registrado ({tipo_registro})",
+                    "detalle": f"Marcado a las {hora_registro}",
                     "usuario": usuario_nombre,
                     "turno": turno_texto,
                     "estado": r["estado"],
@@ -128,14 +128,14 @@ class AsistenciaService:
         hora_registro = hora_actual.strftime("%H:%M")
         
         if estado == "A TIEMPO":
-            mensaje = f"✓ Asistencia registrada - {turno_texto}"
-            detalle = f"¡Llegaste a tiempo! Hora: {hora_registro}"
+            mensaje = f"✓ Registrado - {tipo_registro}"
+            detalle = f"A tiempo ({hora_registro})"
         elif estado == "TARDE":
-            mensaje = f"⚠ Asistencia registrada - {turno_texto}"
-            detalle = f"Llegaste tarde. Hora: {hora_registro}"
+            mensaje = f"⚠ Registrado - {tipo_registro}"
+            detalle = f"Tarde ({hora_registro})"
         else:
-            mensaje = f"✓ Asistencia registrada - {turno_texto}"
-            detalle = f"Hora de registro: {hora_registro}"
+            mensaje = f"✓ Registrado - {tipo_registro}"
+            detalle = f"Hora: {hora_registro}"
 
         return {
             "exito": True,
@@ -342,8 +342,9 @@ class AsistenciaService:
     # ----------------- Nuevo: procesar embeddings en tiempo real ------------------
     async def procesar_realtime(self, dto: RealtimeAsistenciaDTO):
         # Configuración de validación de identidad
-        THRESHOLD = 0.78  # Umbral mínimo de similitud (aumentado para mayor seguridad)
-        MIN_MARGIN = 0.1  # Margen mínimo entre mejor y segundo mejor match
+        # Usar valores del frontend si vienen, sino usar valores por defecto
+        THRESHOLD = getattr(dto, 'threshold', None) or 0.75
+        MIN_MARGIN = getattr(dto, 'min_margin', None) or 0.06
 
         # Validaciones basicas
         if not dto.embedding or len(dto.embedding) < 64:
@@ -392,9 +393,15 @@ class AsistenciaService:
 
         # Validar margen de confianza (evitar matches ambiguos)
         margin = best_score - second_best_score
-        if second_best_score > 0 and margin < MIN_MARGIN:
-            print(f"[ASISTENCIA] RECHAZADO - Margen {margin:.4f} < Mínimo {MIN_MARGIN} (match ambiguo)")
-            return {"error": "⚠ No se pudo verificar tu identidad con certeza. Por favor, intenta de nuevo."}
+        
+        # Ajustar margen dinámicamente: Si el score es muy alto, el margen puede ser menor
+        ajuste_margen = MIN_MARGIN
+        if best_score > 0.92:
+            ajuste_margen = MIN_MARGIN * 0.5  # Si es > 92%, reducir exigencia de margen a la mitad
+        
+        if second_best_score > 0 and margin < ajuste_margen:
+            print(f"[ASISTENCIA] RECHAZADO - Margen {margin:.4f} < Ajustado {ajuste_margen:.4f} (Mínimo original {MIN_MARGIN})")
+            return {"error": "⚠ No se pudo verificar tu identidad con certeza (Match ambiguo). Por favor, intenta de nuevo."}
         
         print(f"[ASISTENCIA] APROBADO - Score {best_score:.4f}, Margen {margin:.4f}")
 
@@ -423,8 +430,33 @@ class AsistenciaService:
                 ahora = dto.marca_tiempo.astimezone(LOCAL_TIMEZONE) if dto.marca_tiempo.tzinfo else dto.marca_tiempo.replace(tzinfo=LOCAL_TIMEZONE)
             
             tipo_registro = self.determinar_tipo_registro(ahora.time())
+        # Si solo se requiere validar identidad (para mostrar modal de confirmación)
+        if getattr(dto, "solo_validar", False):
+            # Determinar qué turno y estado le correspondería
+            ahora = datetime.now(LOCAL_TIMEZONE)
+            if dto.marca_tiempo:
+                ahora = dto.marca_tiempo.astimezone(LOCAL_TIMEZONE) if dto.marca_tiempo.tzinfo else dto.marca_tiempo.replace(tzinfo=LOCAL_TIMEZONE)
+            
+            tipo_registro = self.determinar_tipo_registro(ahora.time())
             estado = self.evaluar_estado(tipo_registro, ahora.time())
             turno_texto = "turno de la mañana" if tipo_registro == "MAÑANA" else "turno de la tarde"
+            
+            # Verificar si ya existe registro hoy
+            hoy = ahora.date()
+            registros = await AsistenciaRepository.obtener_registros_del_dia(
+                str(personal_id), hoy
+            )
+            
+            ya_registrado = False
+            mensaje_ya_registrado = None
+            hora_ya_registrada = None
+            
+            for r in registros:
+                if r["tipo_registro"] == tipo_registro:
+                    ya_registrado = True
+                    hora_ya_registrada = r["marca_tiempo"].split("T")[1].split(".")[0][:5] if "T" in str(r["marca_tiempo"]) else "N/A"
+                    mensaje_ya_registrado = f"✓ Ya registrado ({tipo_registro}) a las {hora_ya_registrada}"
+                    break
             
             return {
                 "reconocido": True,
@@ -434,7 +466,9 @@ class AsistenciaService:
                 "tipo_registro": tipo_registro,
                 "estado": estado,
                 "hora": ahora.strftime("%H:%M:%S"),
-                "preview": True
+                "preview": True,
+                "ya_registrado": ya_registrado,
+                "mensaje": mensaje_ya_registrado if ya_registrado else None
             }
 
         # Reutilizar el método registrar_asistencia que ya incluye:

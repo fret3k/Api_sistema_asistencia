@@ -23,3 +23,8 @@ class SolicitudesSobretiempoRepository:
         result = supabase.table(SolicitudesSobretiempoRepository.table).select("*").execute()
         return result.data
 
+    @staticmethod
+    async def delete_by_personal(personal_id: UUID):
+        supabase = get_supabase()
+        result = supabase.table(SolicitudesSobretiempoRepository.table).delete().eq("personal_id", str(personal_id)).execute()
+        return result.data

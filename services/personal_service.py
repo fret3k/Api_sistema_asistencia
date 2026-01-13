@@ -3,6 +3,10 @@ from datetime import datetime, timezone
 from typing import Optional, cast, TypedDict
 
 from repository.personal_repository import PersonalRepository
+from repository.asistencia_repository import AsistenciaRepository
+from repository.encoding_face_repository import EncodingFaceRepository
+from repository.solicitudes_ausencias_repository import SolicitudesAusenciasRepository
+from repository.solicitudes_sobretiempo_repository import SolicitudesSobretiempoRepository
 from dto.personal_dto.personal_request_dto import PersonalCreateDTO
 from dto.personal_dto.personal_update_dto import PersonalUpdateDTO
 from dto.personal_dto.personal_response_dto import PersonalResponseDTO
@@ -50,6 +54,21 @@ class PersonalService:
 
     @staticmethod
     async def delete(personal_id: UUID):
+        """
+        Elimina a un personal y todos sus registros relacionados (Asistencias, Codificaciones, etc.)
+        para evitar errores de restricción de llave foránea.
+        """
+        # 1. Eliminar asistencias
+        await AsistenciaRepository.delete_by_personal_id(str(personal_id))
+        
+        # 2. Eliminar codificaciones faciales
+        await EncodingFaceRepository.delete_by_personal_id(personal_id)
+        
+        # 3. Eliminar solicitudes (si existen)
+        await SolicitudesAusenciasRepository.delete_by_personal(personal_id)
+        await SolicitudesSobretiempoRepository.delete_by_personal(personal_id)
+        
+        # 4. Finalmente eliminar el personal
         return await PersonalRepository.delete(personal_id)
 
     @staticmethod
