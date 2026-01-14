@@ -113,7 +113,7 @@ class AsistenciaService:
                     "detalle": f"Marcado a las {hora_registro}",
                     "usuario": usuario_nombre,
                     "tipo": tipo_registro,
-                    "turno": "Mañana" if "M" in tipo_registro else "Tarde"
+                    "turno": "Turno Mañana" if "_M" in tipo_registro else "Turno Tarde"
                 }
 
         # Registrar en la tabla con timestamp explícito en zona horaria local
@@ -141,7 +141,7 @@ class AsistenciaService:
             "detalle": detalle,
             "usuario": usuario_nombre,
             "tipo": tipo_registro,
-            "turno": "Mañana" if "M" in tipo_registro else "Tarde",
+            "turno": "Turno Mañana" if "_M" in tipo_registro else "Turno Tarde",
             "estado": estado,
             "hora": hora_registro,
         }
@@ -300,16 +300,17 @@ class AsistenciaService:
                 
                 # Formatear turno
                 tipo_registro = r.get("tipo_registro", "")
-                turno_texto = "Turno Mañana" if "MAÑANA" in tipo_registro else "Turno Tarde"
+                turno_texto = "Turno Mañana" if "_M" in tipo_registro else "Turno Tarde"
                 
                 # Formatear hora y fecha en zona horaria local
                 marca_tiempo_raw = r.get("marca_tiempo", "")
                 try:
-                    # Supabase devuelve UTC, convertimos a local
-                    dt_utc = datetime.fromisoformat(str(marca_tiempo_raw).replace('Z', '+00:00'))
-                    dt_local = dt_utc.astimezone(LOCAL_TIMEZONE)
-                    hora = dt_local.strftime("%H:%M:%S")
-                    fecha = dt_local.strftime("%d/%m")
+                    # Supabase devuelve UTC (que ya es la hora local Lima shiftada por el trigger)
+                    # Por tanto, NO convertimos de nuevo, usamos la hora tal cual viene.
+                    dt_val = datetime.fromisoformat(str(marca_tiempo_raw).replace('Z', '+00:00'))
+                    # dt_val está en UTC (pero es hora Lima). Tomamos esa hora.
+                    hora = dt_val.strftime("%H:%M:%S")
+                    fecha = dt_val.strftime("%d/%m")
                 except Exception as e:
                     print(f"Error formateando fecha: {e}")
                     hora = str(marca_tiempo_raw).split("T")[1].split(".")[0] if "T" in str(marca_tiempo_raw) else "N/A"
@@ -433,7 +434,7 @@ class AsistenciaService:
             
             tipo_registro = await self.determinar_tipo_registro(str(personal_id), ahora.date(), ahora.time())
             estado = self.evaluar_estado(tipo_registro, ahora.time())
-            turno_texto = "Entrada" if "ENTRADA" in tipo_registro else "Salida"
+            turno_texto = "Turno Mañana" if "_M" in tipo_registro else "Turno Tarde"
             
             # Verificar si ya existe registro hoy
             hoy = ahora.date()
