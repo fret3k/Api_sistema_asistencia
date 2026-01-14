@@ -7,6 +7,7 @@ from repository.asistencia_repository import AsistenciaRepository
 from repository.encoding_face_repository import EncodingFaceRepository
 from repository.solicitudes_ausencias_repository import SolicitudesAusenciasRepository
 from repository.solicitudes_sobretiempo_repository import SolicitudesSobretiempoRepository
+from repository.foto_perfil_repository import FotoPerfilRepository
 from dto.personal_dto.personal_request_dto import PersonalCreateDTO
 from dto.personal_dto.personal_update_dto import PersonalUpdateDTO
 from dto.personal_dto.personal_response_dto import PersonalResponseDTO
@@ -43,13 +44,31 @@ class PersonalService:
 
     @staticmethod
     async def list_all():
-        return await PersonalRepository.find_all()
+        result = await PersonalRepository.find_all()
+        # Aplanar fotos_perfil
+        for row in result:
+            if "fotos_perfil" in row and row["fotos_perfil"]:
+                foto_data = row["fotos_perfil"]
+                if isinstance(foto_data, list) and len(foto_data) > 0:
+                    row["foto_base64"] = foto_data[0].get("foto_base64")
+                elif isinstance(foto_data, dict):
+                    row["foto_base64"] = foto_data.get("foto_base64")
+        return result
 
     @staticmethod
     async def get_by_id(personal_id: UUID):
         result = await PersonalRepository.find_by_id(personal_id)
         if not result:
             raise Exception("El personal no existe")
+        
+        # Aplanar fotos_perfil
+        if "fotos_perfil" in result and result["fotos_perfil"]:
+            foto_data = result["fotos_perfil"]
+            if isinstance(foto_data, list) and len(foto_data) > 0:
+                result["foto_base64"] = foto_data[0].get("foto_base64")
+            elif isinstance(foto_data, dict):
+                result["foto_base64"] = foto_data.get("foto_base64")
+            
         return result
 
     @staticmethod
@@ -68,7 +87,10 @@ class PersonalService:
         await SolicitudesAusenciasRepository.delete_by_personal(personal_id)
         await SolicitudesSobretiempoRepository.delete_by_personal(personal_id)
         
-        # 4. Finalmente eliminar el personal
+        # 4. Eliminar foto de perfil
+        await FotoPerfilRepository.delete_by_personal_id(personal_id)
+        
+        # 5. Finalmente eliminar el personal
         return await PersonalRepository.delete(personal_id)
 
     @staticmethod
@@ -167,6 +189,16 @@ class PersonalService:
         if not valid:
             return None
 
+        # Aplanar fotos_perfil si existe
+        if "fotos_perfil" in user and user["fotos_perfil"]:
+            # Supabase devuelve una lista si es relación 1-n, o un objeto si es 1-1 configurado con .single()
+            # En find_by_email devuelve una lista de objetos si no se especifica single.
+            foto_data = user["fotos_perfil"]
+            if isinstance(foto_data, list) and len(foto_data) > 0:
+                user["foto_base64"] = foto_data[0].get("foto_base64")
+            elif isinstance(foto_data, dict):
+                user["foto_base64"] = foto_data.get("foto_base64")
+
         # Token simple (no persistido)
         token = generate_token()
 
@@ -218,8 +250,20 @@ class PersonalService:
         
         encoding_id = encoding_result["id"]
         
+        # 3. Guardar foto de perfil si se proporcionó
+        if data.foto_base64:
+            await FotoPerfilRepository.create_or_update(personal_id, data.foto_base64)
+        
         return {
             "personal_id": personal_id,
             "encoding_id": encoding_id,
             "message": "Personal y codificación facial registrados correctamente"
         }
+
+    @staticmethod
+    async def get_foto(personal_id: UUID):
+        return await FotoPerfilRepository.find_by_personal_id(personal_id)
+
+    @staticmethod
+    async def update_foto(personal_id: UUID, foto_base64: str):
+        return await FotoPerfilRepository.create_or_update(personal_id, foto_base64)

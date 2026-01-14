@@ -73,7 +73,7 @@ async def crear_personal(data: PersonalCreateDTO):
         filtered = {
             k: result[k] for k in (
                 "id", "dni", "nombre", "apellido_paterno", "apellido_materno",
-                "email", "es_administrador", "codificacion_facial"
+                "email", "es_administrador", "codificacion_facial", "foto_base64"
             ) if k in result
         }
         return filtered
@@ -170,7 +170,7 @@ async def listar_personal():
     cleaned = [
         {k: row[k] for k in (
             "id", "dni", "nombre", "apellido_paterno", "apellido_materno",
-            "email", "es_administrador", "codificacion_facial"
+            "email", "es_administrador", "codificacion_facial", "foto_base64"
         ) if k in row}
         for row in result
     ]
@@ -290,4 +290,32 @@ async def reset_password(token: str, data: ResetPasswordDTO):
         raise HTTPException(status_code=400, detail="Token inválido o expirado")
 
     return {"message": "Contraseña restablecida correctamente"}
+
+
+# -------------------------------------------------
+#   GESTIÓN DE FOTO DE PERFIL
+# -------------------------------------------------
+@router.get("/{personal_id}/foto")
+async def obtener_foto_perfil(personal_id: UUID):
+    """
+    Obtiene la foto de perfil de un personal en formato Base64.
+    """
+    result = await PersonalService.get_foto(personal_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Foto de perfil no encontrada")
+    return result
+
+
+class FotoUpdateDTO(BaseModel):
+    foto_base64: str
+
+@router.patch("/{personal_id}/foto")
+async def actualizar_foto_perfil(personal_id: UUID, data: FotoUpdateDTO):
+    """
+    Actualiza o establece la foto de perfil de un personal.
+    """
+    result = await PersonalService.update_foto(personal_id, data.foto_base64)
+    if not result:
+        raise HTTPException(status_code=400, detail="No se pudo actualizar la foto")
+    return {"message": "Foto de perfil actualizada correctamente", "data": result}
 

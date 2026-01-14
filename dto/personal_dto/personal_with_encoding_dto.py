@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 
@@ -18,6 +18,9 @@ class PersonalWithEncodingCreateDTO(BaseModel):
     
     # Datos de la codificación facial
     embedding: List[float] = Field(..., description="Vector de embedding facial (array de 128 números flotantes)")
+    
+    # Foto de perfil
+    foto_base64: Optional[str] = Field(None, description="Imagen de perfil en formato string base64Data")
 
 
 class PersonalWithEncodingResponseDTO(BaseModel):

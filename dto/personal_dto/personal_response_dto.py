@@ -12,6 +12,7 @@ class PersonalResponseDTO(BaseModel):
     apellido_materno: str
     email: EmailStr
     es_administrador: bool
+    foto_base64: str | None = None
 
     class Config:
         from_attributes = True

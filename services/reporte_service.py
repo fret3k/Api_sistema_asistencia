@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from uuid import UUID
 import calendar
 from typing import List
@@ -66,33 +66,52 @@ class ReporteService:
             dias_asistidos = set()
             tardanzas = 0
             salidas_anticipadas = 0
+            horas_trabajadas = 0.0
             
+            # Agrupar por fecha para calcular horas
+            by_date = {}
             for a in asistencias_p:
-                d_fecha = date.fromisoformat(a['fecha'])
+                d_fecha_str = a['fecha']
+                d_fecha = date.fromisoformat(d_fecha_str)
                 dias_asistidos.add(d_fecha)
+                
+                if d_fecha_str not in by_date: by_date[d_fecha_str] = []
+                by_date[d_fecha_str].append(a)
                 
                 estado = a.get('estado', '')
                 if estado == 'TARDE':
                     tardanzas += 1
-                elif estado == 'SALIDA_ANTICIPADA': # Verificar si este es el string exacto en BD
+                elif estado == 'SALIDA_ANTICIPADA':
                     salidas_anticipadas += 1
             
+            # Calcular horas trabajadas por día
+            for d_str, regs in by_date.items():
+                # Tipos: 'ENTRADA_M' | 'SALIDA_M' | 'ENTRADA_T' | 'SALIDA_T'
+                e_m = next((r for r in regs if r['tipo_registro'] == 'ENTRADA_M'), None)
+                s_m = next((r for r in regs if r['tipo_registro'] == 'SALIDA_M'), None)
+                e_t = next((r for r in regs if r['tipo_registro'] == 'ENTRADA_T'), None)
+                s_t = next((r for r in regs if r['tipo_registro'] == 'SALIDA_T'), None)
+                
+                if e_m and s_m:
+                    t1 = datetime.fromisoformat(e_m['marca_tiempo'].replace('Z', '+00:00'))
+                    t2 = datetime.fromisoformat(s_m['marca_tiempo'].replace('Z', '+00:00'))
+                    horas_trabajadas += (t2 - t1).total_seconds() / 3600
+                if e_t and s_t:
+                    t1 = datetime.fromisoformat(e_t['marca_tiempo'].replace('Z', '+00:00'))
+                    t2 = datetime.fromisoformat(s_t['marca_tiempo'].replace('Z', '+00:00'))
+                    horas_trabajadas += (t2 - t1).total_seconds() / 3600
+
             # Solicitudes Ausencias
             ausencias = await SolicitudesAusenciasRepository.find_by_personal(p_id)
             dias_ausencia_justificada = 0
             
             for aus in ausencias:
                 if aus['estado_solicitud'] == 'APROBADA':
-                    # Verificar solapamiento con el mes
                     ai = date.fromisoformat(aus['fecha_inicio'])
                     af = date.fromisoformat(aus['fecha_fin'])
-                    
-                    # Interseccion de rangos [ai, af] y [fecha_inicio, fecha_fin]
                     rango_inicio = max(ai, fecha_inicio)
                     rango_fin = min(af, fecha_fin)
-                    
                     if rango_inicio <= rango_fin:
-                        # Contar dias laborables en el rango de ausencia
                         curr = rango_inicio
                         while curr <= rango_fin:
                             if curr.weekday() < 5:
@@ -109,30 +128,12 @@ class ReporteService:
                         horas_sobretiempo += float(st['horas_solicitadas'])
 
             # Calculo de Faltas
-            # Faltas = Laborables - Asistidos - Ausencias Justificadas
-            # OJO: Dias asistidos son dias que fue. Si fue, no es falta.
-            # Si tiene ausencia justificada, no es falta.
-            # Si es feriado? No estamos considerando feriados aun (segun implementation plan).
-            
-            # Asegurar no contar doble.
-            # Un dia puede ser asistido Y justificado (ej. medio dia)?
-            # Regla simple: Si hay registro de asistencia, cuenta como asistido.
-            # Si no hay registro, chequeamos si es justificado.
-            # Si no es justificado ni asistido, y es laborable, es falta.
-            
-            # Vamos a iterar los dias laborables del mes para ser precisos
             dias_falta = 0
-            
             curr = fecha_inicio
             while curr <= fecha_fin:
                 if curr.weekday() < 5: # Es laborable
-                    # Fue?
-                    if curr in dias_asistidos:
-                        pass # Asistio
-                    else:
-                        # Estaba justificado?
+                    if curr not in dias_asistidos:
                         justificado = False
-                        # Chequear ausencias
                         for aus in ausencias:
                             if aus['estado_solicitud'] == 'APROBADA':
                                 ai = date.fromisoformat(aus['fecha_inicio'])
@@ -143,7 +144,6 @@ class ReporteService:
                         if not justificado:
                             dias_falta += 1
                 curr += timedelta(days=1)
-
 
             # Observaciones
             obs = []
@@ -167,6 +167,8 @@ class ReporteService:
                 ausencias_justificadas=dias_ausencia_justificada,
                 salidas_anticipadas=salidas_anticipadas,
                 horas_sobretiempo=horas_sobretiempo,
+                horas_trabajadas=round(horas_trabajadas, 2),
+                total_horas=round(horas_trabajadas + horas_sobretiempo, 2),
                 observaciones=observaciones_str
             )
             

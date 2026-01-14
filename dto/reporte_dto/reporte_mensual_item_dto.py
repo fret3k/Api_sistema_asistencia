@@ -12,4 +12,6 @@ class ReporteMensualItemDTO(BaseModel):
     ausencias_justificadas: int
     salidas_anticipadas: int
     horas_sobretiempo: float
+    horas_trabajadas: float
+    total_horas: float
     observaciones: str

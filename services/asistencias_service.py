@@ -13,39 +13,50 @@ class AsistenciaService:
 
     def evaluar_estado(self, tipo_registro: str, hora_actual: time):
         """
-        Evalúa el estado de la asistencia según el turno
+        Evalúa el estado de la asistencia según el turno.
+        Para entradas, verifica si es antes de la hora límite.
+        Para salidas, por ahora se marca como NORMAL o SALIDA_ANTICIPADA si es muy pronto.
         """
-        if tipo_registro == "MAÑANA":
+        if tipo_registro == "ENTRADA_M":
             cfg = HORARIOS.get("ENTRADA_M")
-            if not cfg:
-                return "NORMAL"
-            if hora_actual <= cfg["a_tiempo"]:
-                return "A TIEMPO"
-            return "TARDE"
+            if not cfg: return "NORMAL"
+            return "A TIEMPO" if hora_actual <= cfg["a_tiempo"] else "TARDE"
         
-        elif tipo_registro == "TARDE":
+        elif tipo_registro == "SALIDA_M":
+            cfg = HORARIOS.get("SALIDA_M")
+            if not cfg: return "NORMAL"
+            return "NORMAL" if hora_actual >= cfg["a_tiempo"] else "SALIDA_ANTICIPADA"
+
+        elif tipo_registro == "ENTRADA_T":
             cfg = HORARIOS.get("ENTRADA_T")
-            if not cfg:
-                return "NORMAL"
-            if hora_actual <= cfg["a_tiempo"]:
-                return "A TIEMPO"
-            return "TARDE"
+            if not cfg: return "NORMAL"
+            return "A TIEMPO" if hora_actual <= cfg["a_tiempo"] else "TARDE"
+
+        elif tipo_registro == "SALIDA_T":
+            cfg = HORARIOS.get("SALIDA_T")
+            if not cfg: return "NORMAL"
+            return "NORMAL" if hora_actual >= cfg["a_tiempo"] else "SALIDA_ANTICIPADA"
 
         return "NORMAL"
 
-    def determinar_tipo_registro(self, hora_actual: time):
+    async def determinar_tipo_registro(self, personal_id: str, fecha: date, hora_actual: time):
         """
-        Simplificado: Solo registra un turno (MAÑANA o TARDE)
-        Ya no distingue entre entrada y salida
+        Determina si el registro es Entrada o Salida, Mañana o Tarde,
+        basándose en los registros existentes del día.
         """
-        # Límite entre turno mañana y tarde (aproximadamente mediodía/inicio tarde)
+        registros = await AsistenciaRepository.obtener_registros_del_dia(personal_id, fecha)
+        
+        # Limite entre turno mañana y tarde
         inicio_turno_tarde = HORARIOS["ENTRADA_T"].get("inicio_marcacion", time(14, 0))
         
-        # Si es antes de las 14:00, es turno mañana
         if hora_actual < inicio_turno_tarde:
-            return "MAÑANA"
+            # Turno Mañana
+            tiene_entrada = any(r["tipo_registro"] == "ENTRADA_M" for r in registros)
+            return "SALIDA_M" if tiene_entrada else "ENTRADA_M"
         else:
-            return "TARDE"
+            # Turno Tarde
+            tiene_entrada = any(r["tipo_registro"] == "ENTRADA_T" for r in registros)
+            return "SALIDA_T" if tiene_entrada else "ENTRADA_T"
 
     async def registrar_asistencia(self, dto):
 
@@ -79,7 +90,7 @@ class AsistenciaService:
         if hasattr(dto, 'tipo_registro') and dto.tipo_registro:
              tipo_registro = dto.tipo_registro
         else:
-             tipo_registro = self.determinar_tipo_registro(hora_actual)
+             tipo_registro = await self.determinar_tipo_registro(str(dto.personal_id), hoy, hora_actual)
 
         # Si viene estado manual, usarlo? No, calcularlo siempre es mejor para consistencia, 
         # salvo que sea una corrección administrativa.
@@ -94,9 +105,6 @@ class AsistenciaService:
         for r in registros:
             if r["tipo_registro"] == tipo_registro:
                 usuario_nombre = personal.get("nombre_completo") or " ".join(filter(None, [personal.get("nombre"), personal.get("apellido_paterno"), personal.get("apellido_materno")]))
-                
-                # Mensajes amigables para usuarios
-                turno_texto = "turno de la mañana" if tipo_registro == "MAÑANA" else "turno de la tarde"
                 hora_registro = r["marca_tiempo"].split("T")[1].split(".")[0][:5] if "T" in str(r["marca_tiempo"]) else "N/A"
                 
                 return {
@@ -104,9 +112,8 @@ class AsistenciaService:
                     "mensaje": f"✓ Ya registrado ({tipo_registro})",
                     "detalle": f"Marcado a las {hora_registro}",
                     "usuario": usuario_nombre,
-                    "turno": turno_texto,
-                    "estado": r["estado"],
-                    "hora": hora_registro,
+                    "tipo": tipo_registro,
+                    "turno": "Mañana" if "M" in tipo_registro else "Tarde"
                 }
 
         # Registrar en la tabla con timestamp explícito en zona horaria local
@@ -122,27 +129,19 @@ class AsistenciaService:
         await AsistenciaRepository.registrar_asistencia(data)
 
         usuario_nombre = personal.get("nombre_completo") or " ".join(filter(None, [personal.get("nombre"), personal.get("apellido_paterno"), personal.get("apellido_materno")]))
-
-        # Mensajes amigables según el estado
-        turno_texto = "turno de la mañana" if tipo_registro == "MAÑANA" else "turno de la tarde"
         hora_registro = hora_actual.strftime("%H:%M")
         
-        if estado == "A TIEMPO":
-            mensaje = f"✓ Registrado - {tipo_registro}"
-            detalle = f"A tiempo ({hora_registro})"
-        elif estado == "TARDE":
-            mensaje = f"⚠ Registrado - {tipo_registro}"
-            detalle = f"Tarde ({hora_registro})"
-        else:
-            mensaje = f"✓ Registrado - {tipo_registro}"
-            detalle = f"Hora: {hora_registro}"
+        tipo_label = tipo_registro.replace("_", " ")
+        mensaje = f"✓ {tipo_label}"
+        detalle = f"{estado} ({hora_registro})"
 
         return {
             "exito": True,
             "mensaje": mensaje,
             "detalle": detalle,
             "usuario": usuario_nombre,
-            "turno": turno_texto,
+            "tipo": tipo_registro,
+            "turno": "Mañana" if "M" in tipo_registro else "Tarde",
             "estado": estado,
             "hora": hora_registro,
         }
@@ -427,19 +426,14 @@ class AsistenciaService:
             # Determinar qué turno y estado le correspondería
             ahora = datetime.now(LOCAL_TIMEZONE)
             if dto.marca_tiempo:
-                ahora = dto.marca_tiempo.astimezone(LOCAL_TIMEZONE) if dto.marca_tiempo.tzinfo else dto.marca_tiempo.replace(tzinfo=LOCAL_TIMEZONE)
+                if dto.marca_tiempo.tzinfo:
+                    ahora = dto.marca_tiempo.astimezone(LOCAL_TIMEZONE)
+                else:
+                    ahora = dto.marca_tiempo.replace(tzinfo=LOCAL_TIMEZONE)
             
-            tipo_registro = self.determinar_tipo_registro(ahora.time())
-        # Si solo se requiere validar identidad (para mostrar modal de confirmación)
-        if getattr(dto, "solo_validar", False):
-            # Determinar qué turno y estado le correspondería
-            ahora = datetime.now(LOCAL_TIMEZONE)
-            if dto.marca_tiempo:
-                ahora = dto.marca_tiempo.astimezone(LOCAL_TIMEZONE) if dto.marca_tiempo.tzinfo else dto.marca_tiempo.replace(tzinfo=LOCAL_TIMEZONE)
-            
-            tipo_registro = self.determinar_tipo_registro(ahora.time())
+            tipo_registro = await self.determinar_tipo_registro(str(personal_id), ahora.date(), ahora.time())
             estado = self.evaluar_estado(tipo_registro, ahora.time())
-            turno_texto = "turno de la mañana" if tipo_registro == "MAÑANA" else "turno de la tarde"
+            turno_texto = "Entrada" if "ENTRADA" in tipo_registro else "Salida"
             
             # Verificar si ya existe registro hoy
             hoy = ahora.date()

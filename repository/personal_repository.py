@@ -19,13 +19,13 @@ class PersonalRepository:
     @staticmethod
     async def find_all():
         supabase = get_supabase()
-        result = supabase.table(PersonalRepository.table).select("*").execute()
+        result = supabase.table(PersonalRepository.table).select("*, fotos_perfil(foto_base64)").execute()
         return result.data
 
     @staticmethod
     async def find_by_id(personal_id: UUID):
         supabase = get_supabase()
-        result = supabase.table(PersonalRepository.table).select("*").eq("id", str(personal_id)).execute()
+        result = supabase.table(PersonalRepository.table).select("*, fotos_perfil(foto_base64)").eq("id", str(personal_id)).execute()
         return result.data[0] if result.data else None
 
     @staticmethod
@@ -53,7 +53,7 @@ class PersonalRepository:
     @staticmethod
     async def find_by_email(email: str):
         supabase = get_supabase()
-        result = supabase.table(PersonalRepository.table).select("*").eq("email", email).execute()
+        result = supabase.table(PersonalRepository.table).select("*, fotos_perfil(foto_base64)").eq("email", email).execute()
         return result.data[0] if result.data else None
 
     @staticmethod
