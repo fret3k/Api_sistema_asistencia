@@ -79,6 +79,9 @@ from controllers.solicitudes_ausencias_controller import router as SolicitudesAu
 app.include_router(SolicitudesAusenciasRouter)
 app.include_router(ReportesRouter)
 
+from controllers.control_tiempo_controller import router as ControlTiempoRouter
+app.include_router(ControlTiempoRouter)
+
 @app.get("/")
 def root():
     return {"message": "API funcionando correctamente"}
