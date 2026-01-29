@@ -27,6 +27,12 @@ class SolicitudesAusenciasRepository:
         supabase = get_supabase()
         result = supabase.table(SolicitudesAusenciasRepository.table).update({"estado_solicitud": estado}).eq("id", str(id)).execute()
         return result.data[0] if result.data else None
+
+    @staticmethod
+    async def update(id: UUID, data: dict):
+        supabase = get_supabase()
+        result = supabase.table(SolicitudesAusenciasRepository.table).update(data).eq("id", str(id)).execute()
+        return result.data[0] if result.data else None
     @staticmethod
     async def delete_by_personal(personal_id: UUID):
         supabase = get_supabase()

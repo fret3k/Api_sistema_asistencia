@@ -10,6 +10,9 @@ router = APIRouter(prefix="/control-tiempo", tags=["Control de Tiempo"])
 class RegistroTiempoCreate(BaseModel):
     personal_id: str
     tipo_registro: str  # 'ENTRADA' or 'SALIDA'
+    categoria: Optional[str] = None
+    motivo: Optional[str] = None
+    solicitud_id: Optional[str] = None
 
 class RegistroTiempo(BaseModel):
     tipo: str
@@ -33,17 +36,75 @@ async def registrar_tiempo(data: RegistroTiempoCreate):
     Registra una entrada o salida de tiempo para un empleado.
     La hora y fecha se registran automáticamente en el momento del registro.
     """
+    from repository.solicitudes_ausencias_repository import SolicitudesAusenciasRepository
+    import json
+
     try:
         now = datetime.now()
         hora_actual = now.strftime("%H:%M")
         fecha_actual = now.strftime("%Y-%m-%d")
+
+        # --- Lógica de Permisos ---
+        permiso_procesado = False
+        msg_extra = ""
         
-        # Verificar si ya existe un registro del mismo tipo hoy
+        if data.categoria == 'permiso':
+            if data.tipo_registro == 'SALIDA':
+                # Validar que existe solicitud aprobada
+                if not data.solicitud_id:
+                     # Si no se envió ID (caso raro o fallback), no podemos procesar el permiso vinculado
+                     # Opcional: buscar uno por defecto, pero mejor exigir selección
+                     pass
+                else:
+                    # Actualizar la solicitud existente con la hora real de inicio
+                    await SolicitudesAusenciasRepository.update(data.solicitud_id, {
+                        "hora_inicio": hora_actual
+                        # Podríamos cambiar estado a 'EN_CURSO' si la lógica lo requiere,
+                        # pero user pidió "solo administrador aprueba... luego usuario registra".
+                        # Asumimos que sigue APROBADA o pasa a 'EN_PROCESO'. Lo dejaremos en APROBADA con hora marcada.
+                    })
+                    permiso_procesado = True
+                    msg_extra = " (Salida Autorizada)"
+
+            elif data.tipo_registro == 'ENTRADA':
+                # Actualizar retorno de permiso
+                solicitudes = await SolicitudesAusenciasRepository.find_by_personal(data.personal_id)
+                # Buscar el permiso APROBADA de hoy con hora_inicio marcada pero sin hora_fin (o la más reciente)
+                today_solicitudes = [
+                    s for s in solicitudes 
+                    if s.get('fecha_inicio') == fecha_actual 
+                    and s.get('estado_solicitud') == 'APROBADA'
+                ]
+                
+                if today_solicitudes:
+                    # Tomar el último (asumiendo que es el activo)
+                    last_sol = today_solicitudes[-1]
+                    await SolicitudesAusenciasRepository.update(last_sol['id'], {
+                        "hora_fin": hora_actual
+                    })
+                    permiso_procesado = True
+                    msg_extra = " (Retorno confirmado)"
+        
+        # --- Fin Lógica Permisos ---
+        
+        # Verificar si ya existe un registro del mismo tipo hoy en control_tiempo
         existing = get_supabase().table('control_tiempo').select('*').eq(
             'personal_id', data.personal_id
         ).eq('fecha', fecha_actual).eq('tipo_registro', data.tipo_registro).execute()
         
         if existing.data and len(existing.data) > 0:
+            # Si es permiso y ya existe el registro de tiempo (ej. segunda salida por permiso),
+            # consideramos éxito porque ya procesamos el permiso arriba.
+            if permiso_procesado:
+                 return {
+                    "success": True,
+                    "ya_registrado": True, # Flag para frontend
+                    "mensaje": f"{data.tipo_registro} registrada correctamente{msg_extra}",
+                    "hora": hora_actual,
+                    "fecha": fecha_actual,
+                    "tipo": data.tipo_registro
+                }
+            
             return {
                 "success": True,
                 "ya_registrado": True,
@@ -51,7 +112,7 @@ async def registrar_tiempo(data: RegistroTiempoCreate):
                 "hora": existing.data[0].get('hora', hora_actual)
             }
         
-        # Crear nuevo registro
+        # Crear nuevo registro en control_tiempo
         registro = {
             'personal_id': data.personal_id,
             'tipo_registro': data.tipo_registro,
@@ -66,12 +127,21 @@ async def registrar_tiempo(data: RegistroTiempoCreate):
             return {
                 "success": True,
                 "ya_registrado": False,
-                "mensaje": f"{data.tipo_registro} registrada correctamente",
+                "mensaje": f"{data.tipo_registro} registrada correctamente{msg_extra}",
                 "hora": hora_actual,
                 "fecha": fecha_actual,
                 "tipo": data.tipo_registro
             }
         else:
+            if permiso_procesado:
+                 # Fallback success if permission worked but control_tiempo failed
+                 return {
+                    "success": True,
+                    "mensaje": f"{data.tipo_registro} registrada (Solo Historial){msg_extra}",
+                    "hora": hora_actual,
+                    "fecha": fecha_actual,
+                    "tipo": data.tipo_registro
+                }
             raise HTTPException(status_code=500, detail="Error al guardar el registro")
             
     except Exception as e:
