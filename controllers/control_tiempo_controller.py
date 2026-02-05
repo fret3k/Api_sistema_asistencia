@@ -25,6 +25,8 @@ class ResumenJornada(BaseModel):
     hora_salida: Optional[str] = None
     horas_trabajadas: str = "0h 0m"
     minutos_trabajados: int = 0
+    tiempo_ausencia: str = "0h 0m"
+    minutos_ausencia: int = 0
 
 class ControlTiempoResponse(BaseModel):
     registros: List[RegistroTiempo]
@@ -212,13 +214,41 @@ async def get_registros_personal(personal_id: UUID, fecha: Optional[str] = None)
                 except:
                     pass
             
+            # Calcular tiempo de ausencia (tiempo entre SALIDA y ENTRADA de retorno)
+            tiempo_ausencia = "0h 0m"
+            minutos_ausencia = 0
+            
+            # Buscar pares de SALIDA-ENTRADA para calcular ausencias
+            i = 0
+            while i < len(result.data or []):
+                reg = result.data[i]
+                if reg.get('tipo_registro') == 'SALIDA' and i + 1 < len(result.data):
+                    # Buscar la siguiente ENTRADA
+                    next_reg = result.data[i + 1]
+                    if next_reg.get('tipo_registro') == 'ENTRADA':
+                        try:
+                            salida_tiempo = datetime.strptime(reg.get('hora', ''), "%H:%M")
+                            entrada_tiempo = datetime.strptime(next_reg.get('hora', ''), "%H:%M")
+                            diff = entrada_tiempo - salida_tiempo
+                            minutos_ausencia += int(diff.total_seconds() / 60)
+                        except:
+                            pass
+                i += 1
+            
+            if minutos_ausencia > 0:
+                horas_aus = minutos_ausencia // 60
+                mins_aus = minutos_ausencia % 60
+                tiempo_ausencia = f"{horas_aus}h {mins_aus}m"
+            
             return ControlTiempoResponse(
                 registros=registros,
                 resumen=ResumenJornada(
                     hora_entrada=hora_entrada,
                     hora_salida=hora_salida,
                     horas_trabajadas=horas_trabajadas,
-                    minutos_trabajados=minutos_trabajados
+                    minutos_trabajados=minutos_trabajados,
+                    tiempo_ausencia=tiempo_ausencia,
+                    minutos_ausencia=minutos_ausencia
                 )
             )
             
