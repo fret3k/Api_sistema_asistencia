@@ -1,4 +1,5 @@
 from uuid import UUID
+from datetime import datetime, timezone
 from repository.encoding_face_repository import EncodingFaceRepository
 from dto.codificacion_facial_dto.endodig_face_request_dto import EncodingFaceCreateDTO
 
@@ -8,6 +9,10 @@ class EncodingFaceService:
     async def create(data: EncodingFaceCreateDTO):
         # mode='json' convierte UUID a string automáticamente
         payload = data.model_dump(mode='json')
+        # Agregar timestamps requeridos por la tabla
+        now = datetime.now(timezone.utc).isoformat()
+        payload["created_at"] = now
+        payload["updated_at"] = now
         return await EncodingFaceRepository.create(payload)
 
     @staticmethod
